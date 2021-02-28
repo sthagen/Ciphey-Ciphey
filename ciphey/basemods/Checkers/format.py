@@ -1,22 +1,24 @@
-from typing import Optional, Dict, List
+import json
+from typing import Dict, Optional
 
 from loguru import logger
 
-from . import brandon
-from ciphey.iface import registry, Checker, ParamSpec, T, Config
-
-import json
+from ciphey.iface import Checker, Config, ParamSpec, T, registry
 
 
 @registry.register
 class JsonChecker(Checker[str]):
 
     """
-        This object is effectively a prebuilt quroum (with requirement 1) of common patterns
+    This object is effectively a prebuilt quorum (with requirement 1) of common patterns
     """
 
     def check(self, text: T) -> Optional[str]:
-        logger.trace(f"Trying json checker")
+        logger.trace("Trying json checker")
+
+        # https://github.com/Ciphey/Ciphey/issues/389
+        if text.isdigit():
+            return None
 
         try:
             json.loads(text)
@@ -34,5 +36,3 @@ class JsonChecker(Checker[str]):
     @staticmethod
     def getParams() -> Optional[Dict[str, ParamSpec]]:
         pass
-
-

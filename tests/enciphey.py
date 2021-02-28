@@ -1,16 +1,15 @@
-import random
-import nltk
-from nltk.tokenize.treebank import TreebankWordDetokenizer
-import random
 import base64
 import binascii
-import cipheydists
+import random
+import re
 import string
-import cipheycore
-import cipheydists
+
 import base58
 import base62
-import re
+import cipheycore
+import cipheydists
+import nltk
+from nltk.tokenize.treebank import TreebankWordDetokenizer
 
 
 class encipher:
@@ -21,7 +20,6 @@ class encipher:
         """Inits the encipher object """
         self.text = self.read_text()
         self.MAX_SENTENCE_LENGTH = 5
-        # ntlk.download("punkt")
         self.crypto = encipher_crypto()
 
     def read_text(self):  # pragma: no cover
@@ -47,11 +45,11 @@ class encipher_crypto:  # pragma: no cover
     """Holds the encryption functions
     can randomly select an encryption function  use on text
     returns:
-        {"text": t, "plaintext": c, "cipher": p, "suceeds": False}
+        {"text": t, "plaintext": c, "cipher": p, "succeeds": False}
 
-    where suceeds is whether or not the text is really encrypted or falsely decrypted
+    where succeeds is whether or not the text is really encrypted or falsely decrypted
 
-    Uses Cyclic3's module  generate psuedo random text"""
+    Uses Cyclic3's module  generate pseudo random text"""
 
     def __init__(self):  # pragma: no cover
         self.methods = [
@@ -68,7 +66,7 @@ class encipher_crypto:  # pragma: no cover
             self.base58_ripple,
             self.b62,
         ]
-        self.morse_dict = dict(cipheydists.get_charset("morse"))
+        self.morse_dict = dict(cipheydists.get_translate("morse"))
         self.letters = string.ascii_lowercase
         self.group = cipheydists.get_charset("english")["lcase"]
 
@@ -92,13 +90,13 @@ class encipher_crypto:  # pragma: no cover
         return {"PlainText": text, "EncryptedText": encryptedText, "CipherUsed": name}
 
     def Base64(self, text: str) -> str:  # pragma: no cover
-        """Turns text in base64 using Python libray
+        """Turns text into Base64 using Python library
 
-            args:
-                text -> text  convert
+        args:
+            text -> text  convert
 
-            returns:
-                text -> as base 64"""
+        returns:
+            text -> as Base64"""
         return base64.b64encode(bytes(text, "utf-8")).decode("utf-8")
 
     def Caesar(self, s, k):  # pragma: no cover
@@ -117,23 +115,23 @@ class encipher_crypto:  # pragma: no cover
         return c
 
     def Base32(self, text: str) -> str:  # pragma: no cover
-        """Turns text in base64 using Python libray
+        """Turns text in Base32 using Python library
 
-            args:
-                text -> text  convert
+        args:
+            text -> text  convert
 
-            returns:
-                text -> as base 64"""
+        returns:
+            text -> as Base32"""
         return base64.b32encode(bytes(text, "utf-8")).decode("utf-8")
 
     def Base16(self, text: str) -> str:  # pragma: no cover
-        """Turns text in base64 using Python libray
+        """Turns text in Base16 using Python library
 
-            args:
-                text -> text  convert
+        args:
+            text -> text  convert
 
-            returns:
-                text -> as base 64"""
+        returns:
+            text -> as Base16"""
         return base64.b16encode(bytes(text, "utf-8")).decode("utf-8")
 
     def Binary(self, text: str) -> str:  # pragma: no cover
@@ -151,7 +149,7 @@ class encipher_crypto:  # pragma: no cover
         morse = []
         for i in text:
             m = self.morse_dict.get(i.upper())
-            if m == None:
+            if m is None:
                 m = ""
             morse.append(m)
 
@@ -188,7 +186,3 @@ class encipher_crypto:  # pragma: no cover
 
     def b62(self, text: str):
         return base62.decode(str(re.sub(r"[^A-Za-z1-9]+", "", text)))
-
-
-# obj = encipher()
-# print(obj.getRandomEncryptedSentence())

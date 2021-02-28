@@ -1,23 +1,14 @@
+import datetime
 import os
-from typing import (
-    Any,
-    Dict,
-    Optional,
-    List,
-    Type,
-    Union, Callable,
-)
 import pydoc
+from typing import Any, Callable, Dict, List, Optional, Type, Union
 
+import appdirs
+import yaml
 from loguru import logger
 
-import datetime
-
-import yaml
-import appdirs
-
 from . import _fwd
-from ._modules import Checker, Searcher, ResourceLoader
+from ._modules import PolymorphicChecker, ResourceLoader, Searcher
 
 
 class Cache:
@@ -27,7 +18,7 @@ class Cache:
         self._cache: Dict[Any, Dict[str, Any]] = {}
 
     def mark_ctext(self, ctext: Any) -> bool:
-        if (type(ctext) == str or type(ctext) == bytes) and len(ctext) < 4:
+        if (isinstance(ctext, str) or isinstance(ctext, bytes)) and len(ctext) < 4:
             logger.trace(f"Candidate {ctext.__repr__()} too short!")
             return False
 
@@ -64,12 +55,11 @@ class Config:
         self.verbosity: int = 0
         self.searcher: str = "ausearch"
         self.params: Dict[str, Dict[str, Union[str, List[str]]]] = {}
-        self.format: Dict[str, str] = {"in": "str", "out": "str"}
+        self.format: str = "str"
         self.modules: List[str] = []
         self.checker: str = "ezcheck"
         self.default_dist: str = "cipheydists::dist::english"
         self.timeout: Optional[int] = None
-
         self._inst: Dict[type, Any] = {}
         self.objs: Dict[str, Any] = {}
         self.cache: Cache = Cache()
@@ -84,7 +74,11 @@ class Config:
         for a, b in config_file.items():
             self.update(a, b)
 
-    def load_file(self, path: str = os.path.join(get_default_dir.__func__(), "config.yml"), create=False):
+    def load_file(
+        self,
+        path: str = os.path.join(get_default_dir.__func__(), "config.yml"),
+        create=False,
+    ):
         try:
             with open(path, "r+") as file:
                 return self.merge_dict(yaml.safe_load(file))
@@ -94,7 +88,7 @@ class Config:
 
     def instantiate(self, t: type) -> Any:
         """
-            Used to enable caching of a instantiated type after the configuration has settled
+        Used to enable caching of a instantiated type after the configuration has settled
         """
         # We cannot use set default as that would construct it again, and throw away the result
         res = self._inst.get(t)
@@ -122,20 +116,21 @@ class Config:
         else:
             target[name] = value
 
-    def update_format(self, paramname: str, value: Optional[Any]):
+    def update_format(self, value: Optional[str]):
         if value is not None:
-            self.format[paramname] = value
+            self.format = value
 
     def load_objs(self):
         # Basic type conversion
         if self.timeout is not None:
             self.objs["timeout"] = datetime.timedelta(seconds=int(self.timeout))
-        self.objs["format"] = {
-            key: pydoc.locate(value) for key, value in self.format.items()
-        }
+        self.objs["format"] = pydoc.locate(self.format)
 
-        # Checkers do not depend on anything
-        self.objs["checker"] = self(_fwd.registry.get_named(self.checker, Checker))
+        # Checkers do not depend on any other config object
+        logger.trace(f"Registry is {_fwd.registry._reg[PolymorphicChecker]}")
+        self.objs["checker"] = self(
+            _fwd.registry.get_named(self.checker, PolymorphicChecker)
+        )
         # Searchers only depend on checkers
         self.objs["searcher"] = self(_fwd.registry.get_named(self.searcher, Searcher))
 
@@ -147,10 +142,7 @@ class Config:
             "ERROR",
             "CRITICAL",
         ]
-        loud_list = [
-            "DEBUG",
-            "TRACE"
-        ]
+        loud_list = ["DEBUG", "TRACE"]
         verbosity_name: str
         if verbosity == 0:
             verbosity_name = "WARNING"
@@ -159,19 +151,25 @@ class Config:
         else:
             verbosity_name = quiet_list[min(len(quiet_list), -verbosity) - 1]
 
-        from loguru import logger
         import sys
+
+        from loguru import logger
 
         logger.remove()
         if self.verbosity is None:
             return
         logger.configure()
         if self.verbosity > 0:
-            logger.add(sink=sys.stderr, level=verbosity_name, colorize=sys.stderr.isatty())
+            logger.add(
+                sink=sys.stderr, level=verbosity_name, colorize=sys.stderr.isatty()
+            )
             logger.opt(colors=True)
         else:
             logger.add(
-                sink=sys.stderr, level=verbosity_name, colorize=False, format="{message}"
+                sink=sys.stderr,
+                level=verbosity_name,
+                colorize=False,
+                format="{message}",
             )
         logger.debug(f"Verbosity set to level {verbosity} ({verbosity_name})")
 
@@ -185,7 +183,7 @@ class Config:
 
         logger.debug(f"Loaded modules {_fwd.registry.get_all_names()}")
 
-    def complete_config(self) -> 'Config':
+    def complete_config(self) -> "Config":
         """This does all the loading for the config, and then returns itself"""
         self.load_modules()
         self.load_objs()
@@ -207,22 +205,41 @@ class Config:
         self.update_log_level(i)
         return self
 
+    def set_spinner(self, spinner):
+        self.objs["spinner"] = spinner
+
+    def pause_spinner_handle(self):
+        spinner = self.objs.get("spinner")
+
+        class PausedSpinner:
+            def __enter__(self):
+                if spinner is not None:
+                    spinner.stop()
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                if spinner is not None:
+                    spinner.start()
+
+        return PausedSpinner()
+
     @staticmethod
     def library_default():
         """The default config for use in a library"""
         return Config().set_verbosity(-1)
 
     def __str__(self):
-        return str({
-            "verbosity": self.verbosity,
-            "searcher": self.searcher,
-            "params": self.params,
-            "format": self.format,
-            "modules": self.modules,
-            "checker": self.checker,
-            "default_dist": self.default_dist,
-            "timeout": self.timeout
-        })
+        return str(
+            {
+                "verbosity": self.verbosity,
+                "searcher": self.searcher,
+                "params": self.params,
+                "format": self.format,
+                "modules": self.modules,
+                "checker": self.checker,
+                "default_dist": self.default_dist,
+                "timeout": self.timeout,
+            }
+        )
 
 
 _fwd.config = Config

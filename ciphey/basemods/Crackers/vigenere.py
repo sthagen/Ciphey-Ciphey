@@ -7,59 +7,69 @@
 © Brandon Skerritt
 Github: brandonskerritt
 """
-from copy import copy
 from distutils import util
-from typing import Optional, Dict, Union, Set, List
+from typing import Dict, List, Optional, Union
 
-import re
-
-from loguru import logger
-import ciphey
 import cipheycore
+from loguru import logger
 
-from ciphey.iface import ParamSpec, Cracker, CrackResult, T, CrackInfo, registry
+from ciphey.common import fix_case
+from ciphey.iface import Config, Cracker, CrackInfo, CrackResult, ParamSpec, registry
 
 
 @registry.register
-class Vigenere(ciphey.iface.Cracker[str]):
+class Vigenere(Cracker[str]):
     def getInfo(self, ctext: str) -> CrackInfo:
         if self.keysize is not None:
             analysis = self.cache.get_or_update(
                 ctext,
                 f"vigenere::{self.keysize}",
-                lambda: cipheycore.analyse_string(ctext, self.keysize, self.group),
+                lambda: cipheycore.analyse_string(
+                    ctext.lower(), self.keysize, self.group
+                ),
             )
 
+            val = cipheycore.vigenere_detect(analysis, self.expected)
+
+            logger.debug(f"Vigenere has likelihood {val}")
+
             return CrackInfo(
-                success_likelihood=cipheycore.vigenere_detect(analysis, self.expected),
+                success_likelihood=val,
                 # TODO: actually calculate runtimes
-                success_runtime=1e-4,
-                failure_runtime=1e-4,
+                success_runtime=1e-3,
+                failure_runtime=1e-2,
             )
 
         likely_lens = self.cache.get_or_update(
             ctext,
-            f"vigenere::likely_lens",
-            lambda: cipheycore.vigenere_likely_key_lens(ctext, self.expected, self.group, self.p_value),
+            "vigenere::likely_lens",
+            lambda: cipheycore.vigenere_likely_key_lens(
+                ctext.lower(), self.expected, self.group, self.detect_p_value
+            ),
         )
+
+        # Filter out the lens that make no sense
+        likely_lens = [i for i in likely_lens if i.len <= self.max_key_length]
 
         for keysize in likely_lens:
             # Store the analysis
             analysis = self.cache.get_or_update(
-                ctext,
-                f"vigenere::{keysize.len}",
-                lambda: keysize.tab
+                ctext, f"vigenere::{keysize.len}", lambda: keysize.tab
             )
         if len(likely_lens) == 0:
             return CrackInfo(
                 success_likelihood=0,
                 # TODO: actually calculate runtimes
-                success_runtime=2e-4,
-                failure_runtime=2e-4,
+                success_runtime=2e-3,
+                failure_runtime=2e-2,
             )
 
+        logger.debug(
+            f"Vigenere has likelihood {likely_lens[0].p_value} with lens {[i.len for i in likely_lens]}"
+        )
+
         return CrackInfo(
-            success_likelihood=0*likely_lens[0].p_value,
+            success_likelihood=likely_lens[0].p_value,
             # TODO: actually calculate runtimes
             success_runtime=2e-4,
             failure_runtime=2e-4,
@@ -70,20 +80,26 @@ class Vigenere(ciphey.iface.Cracker[str]):
         return "vigenere"
 
     def crackOne(
-        self, ctext: str, analysis: cipheycore.windowed_analysis_res
+        self, ctext: str, analysis: cipheycore.windowed_analysis_res, real_ctext: str
     ) -> List[CrackResult]:
         possible_keys = cipheycore.vigenere_crack(
             analysis, self.expected, self.group, self.p_value
         )
-        logger.trace(f"Vigenere crack got keys: {[[i for i in candidate.key] for candidate in possible_keys]}")
-        # if len(possible_keys) and possible_keys[0].p_value < 0.9999999:
-        #     raise 0
+        if len(possible_keys) > self.clamp:
+            possible_keys = possible_keys[: self.clamp]
+        logger.trace(
+            f"Vigenere crack got keys: {[[i for i in candidate.key] for candidate in possible_keys]}"
+        )
         return [
             CrackResult(
-                value=cipheycore.vigenere_decrypt(ctext, candidate.key, self.group),
+                value=fix_case(
+                    cipheycore.vigenere_decrypt(ctext, candidate.key, self.group),
+                    real_ctext,
+                ),
                 key_info="".join([self.group[i] for i in candidate.key]),
+                misc_info=f"p-value was {candidate.p_value}",
             )
-            for candidate in possible_keys[:min(len(possible_keys), 10)]
+            for candidate in possible_keys[: min(len(possible_keys), 10)]
         ]
 
     def attemptCrack(self, ctext: str) -> List[CrackResult]:
@@ -101,68 +117,84 @@ class Vigenere(ciphey.iface.Cracker[str]):
                 self.cache.get_or_update(
                     ctext,
                     f"vigenere::{self.keysize}",
-                    lambda: cipheycore.analyse_string(ctext, self.keysize, self.group),
+                    lambda: cipheycore.analyse_string(
+                        message, self.keysize, self.group
+                    ),
                 ),
-            )
-        else:
-            arrs = []
-            likely_lens = self.cache.get_or_update(
                 ctext,
-                f"vigenere::likely_lens",
-                lambda: cipheycore.vigenere_likely_key_lens(ctext, self.expected, self.group),
             )
-            possible_lens = [i for i in likely_lens]
-            possible_lens.sort(key=lambda i: i.p_value)
-            logger.trace(f"Got possible lengths {[i.len for i in likely_lens]}")
-            # TODO: work out length
-            for i in possible_lens:
-                arrs.extend(
-                    self.crackOne(
-                        message,
-                        self.cache.get_or_update(
-                            ctext,
-                            f"vigenere::{i.len}",
-                            lambda: cipheycore.analyse_string(ctext, i.len, self.group),
-                        ),
-                    )
-                )
 
-            logger.debug(f"Vigenere returned {len(arrs)} candidates")
-            return arrs
+        arrs = []
+        likely_lens = self.cache.get_or_update(
+            ctext,
+            "vigenere::likely_lens",
+            lambda: cipheycore.vigenere_likely_key_lens(
+                message, self.expected, self.group
+            ),
+        )
+        possible_lens = [i for i in likely_lens]
+        possible_lens.sort(key=lambda i: i.p_value)
+        logger.trace(f"Got possible lengths {[i.len for i in likely_lens]}")
+        # TODO: work out length
+        for i in possible_lens:
+            arrs.extend(
+                self.crackOne(
+                    message,
+                    self.cache.get_or_update(
+                        ctext,
+                        f"vigenere::{i.len}",
+                        lambda: cipheycore.analyse_string(message, i.len, self.group),
+                    ),
+                    ctext,
+                )
+            )
+
+        logger.debug(f"Vigenere returned {len(arrs)} candidates")
+        return arrs
 
     @staticmethod
     def getParams() -> Optional[Dict[str, ParamSpec]]:
         return {
-            "expected": ciphey.iface.ParamSpec(
+            "expected": ParamSpec(
                 desc="The expected distribution of the plaintext",
                 req=False,
                 config_ref=["default_dist"],
             ),
-            "group": ciphey.iface.ParamSpec(
+            "group": ParamSpec(
                 desc="An ordered sequence of chars that make up the caesar cipher alphabet",
                 req=False,
                 default="abcdefghijklmnopqrstuvwxyz",
             ),
-            "lower": ciphey.iface.ParamSpec(
+            "lower": ParamSpec(
                 desc="Whether or not the ciphertext should be converted to lowercase first",
                 req=False,
                 default=True,
             ),
-            "keysize": ciphey.iface.ParamSpec(
+            "keysize": ParamSpec(
                 desc="A key size that should be used. If not given, will attempt to work it out",
                 req=False,
             ),
-            "p_value": ciphey.iface.ParamSpec(
+            "p_value": ParamSpec(
                 desc="The p-value to use for windowed frequency analysis",
+                req=False,
+                default=0.5,
+            ),
+            "detect_p_value": ParamSpec(
+                desc="The p-value to use for the detection of Vigenere length",
                 req=False,
                 default=0.01,
             ),
+            "clamp": ParamSpec(
+                desc="The maximum number of candidates that can be returned per key len",
+                req=False,
+                default=10,
+            ),
         }
 
-    def __init__(self, config: ciphey.iface.Config):
+    def __init__(self, config: Config):
         super().__init__(config)
         self.lower: Union[str, bool] = self._params()["lower"]
-        if type(self.lower) != bool:
+        if not isinstance(self.lower, bool):
             self.lower = util.strtobool(self.lower)
         self.group = list(self._params()["group"])
         self.expected = config.get_resource(self._params()["expected"])
@@ -170,5 +202,7 @@ class Vigenere(ciphey.iface.Cracker[str]):
         self.keysize = self._params().get("keysize")
         if self.keysize is not None:
             self.keysize = int(self.keysize)
-        self.p_value = self._params()["p_value"]
-        self.MAX_KEY_LENGTH = 16
+        self.p_value = float(self._params()["p_value"])
+        self.detect_p_value = float(self._params()["detect_p_value"])
+        self.clamp = int(self._params()["clamp"])
+        self.max_key_length = 16

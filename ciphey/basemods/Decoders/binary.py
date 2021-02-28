@@ -1,18 +1,31 @@
-from typing import Optional, Dict, Any, List
+import re
+from typing import Dict, List, Optional
 
 from loguru import logger
 
-import ciphey
-from ciphey.iface import registry
-
-import re
+from ciphey.iface import Config, Decoder, ParamSpec, T, U, registry
 
 
 @registry.register
-class Binary(ciphey.iface.Decoder[str, bytes]):
-    @staticmethod
-    def getTarget() -> str:
-        return "binary"
+class Binary(Decoder[str]):
+    def decode(self, ctext: T) -> Optional[U]:
+        try:
+            ctext = re.sub(r"[^\S \n]", " ", ctext, flags=re.UNICODE)
+            ctext = ctext.replace("\n", " ")
+
+            existing_split = self.try_split(ctext.split(" "))
+            if existing_split is not None:
+                return existing_split
+
+            # Now we try our own grouping
+
+            # Remove final bit of whitespace
+            ctext = ctext.replace(" ", "")
+            # Split into bytes, and test
+            return self.try_split([ctext[i : i + 8] for i in range(0, len(ctext), 8)])
+        # Catch bad octal chars
+        except ValueError:
+            return None
 
     def try_split(self, split_text: List[str]):
         ret = []
@@ -30,32 +43,17 @@ class Binary(ciphey.iface.Decoder[str, bytes]):
             logger.debug(f"binary successful, returning {ret.__repr__()}")
             return ret
 
-    def decode(self, text: str) -> Optional[bytes]:
-        try:
-            text = re.sub(r"[^\S \n]", " ", text, flags=re.UNICODE)
-            text = text.replace("\n", " ")
-
-            existing_split = self.try_split(text.split(" "))
-            if existing_split is not None:
-                return existing_split
-
-            # Now we try our own grouping
-
-            # Remove final bit of whitespace
-            text = text.replace(" ", "")
-            # Split into bytes, and test
-            return self.try_split([text[i:i+8] for i in range(0, len(text), 8)])
-        # Catch bad octal chars
-        except ValueError:
-            return None
-
-    @staticmethod
-    def getParams() -> Optional[Dict[str, Dict[str, Any]]]:
-        pass
-
     @staticmethod
     def priority() -> float:
         return 0.3
 
-    def __init__(self, config: ciphey.iface.Config):
+    def __init__(self, config: Config):
         super().__init__(config)
+
+    @staticmethod
+    def getParams() -> Optional[Dict[str, ParamSpec]]:
+        return None
+
+    @staticmethod
+    def getTarget() -> str:
+        return "binary"

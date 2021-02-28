@@ -1,17 +1,20 @@
 import base64
 import types
-
-import ciphey
-import binascii
-from typing import Callable, Optional, Any, Dict
+from typing import Any, Callable, Optional
 
 from loguru import logger
+import re
+
+from ciphey.common import id_lambda
+from ciphey.iface import Decoder, registry
 
 
 def _dispatch(self: Any, ctext: str, func: Callable[[str], bytes]) -> Optional[bytes]:
     logger.trace(f"Attempting {self.getTarget()}")
 
     try:
+        # remove all whitespace
+        ctext = re.sub(r"\s+", "", ctext, re.UNICODE)
         result = func(ctext)
         logger.debug(f"{self.getTarget()} successful, returning {result}")
         return result
@@ -30,16 +33,19 @@ _bases = {
 
 
 def gen_class(name, decoder, priority, ns):
-    ns["_get_func"] = ciphey.common.id_lambda(decoder)
+    ns["_get_func"] = id_lambda(decoder)
     ns["decode"] = lambda self, ctext: _dispatch(self, ctext, self._get_func())
-    ns["getParams"] = ciphey.common.id_lambda(None)
-    ns["getTarget"] = ciphey.common.id_lambda(name)
-    ns["priority"] = ciphey.common.id_lambda(priority)
+    ns["getParams"] = id_lambda(None)
+    ns["getTarget"] = id_lambda(name)
+    ns["priority"] = id_lambda(priority)
     ns["__init__"] = lambda self, config: super(type(self), self).__init__(config)
 
 
 for name, (decoder, priority) in _bases.items():
-    t = types.new_class(name, (ciphey.iface.Decoder[str, bytes],),
-                        exec_body=lambda x: gen_class(name, decoder, priority, x))
+    t = types.new_class(
+        name,
+        (Decoder[str],),
+        exec_body=lambda x: gen_class(name, decoder, priority, x),
+    )
 
-    ciphey.iface.registry.register(t)
+    registry.register(t)
