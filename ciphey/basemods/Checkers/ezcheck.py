@@ -5,7 +5,9 @@ from ciphey.iface import Checker, Config, ParamSpec, T, registry
 from .brandon import Brandon
 from .format import JsonChecker
 from .human import HumanChecker
+from .quadgrams import Quadgrams
 from .regex import RegexList
+from .what import What
 
 
 @registry.register
@@ -41,14 +43,14 @@ class EzCheck(Checker[str]):
 
         # We need to modify the config for each of the objects
 
-        # First the flag regexes, as they are the fastest
-        flags_config = config
-        flags_config.update_param("regexlist", "resource", "cipheydists::list::flags")
-        # We do not cache, as this uses a different, on-time config
-        self.checkers.append(RegexList(flags_config))
+        # First PyWhat, as it's the fastest
+        self.checkers.append(config(What))
 
         # Next, the json checker
         self.checkers.append(config(JsonChecker))
+
+        # Second to last, the quadgrams checker
+        self.checkers.append(config(Quadgrams))
 
         # Finally, the Brandon checker, as it is the slowest
         self.checkers.append(config(Brandon))
