@@ -1,4 +1,5 @@
 🚨 An experimental rewrite in Rust can be found here https://github.com/bee-san/ares 🚨
+
 🚨 I intend to merge this rewrite into this repo by June of 2026 🚨
 
 <p align="center">
