@@ -1,15 +1,17 @@
 <p align="center">
 การแปล <br>
-<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/de/README.md>🇩🇪 DE   </a>
-<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/fr/README.md>🇫🇷 FR   </a>
-<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/hu/README.md>🇭🇺 HU   </a>
-<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/id/README.md>🇮🇩 ID   </a>
-<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/it/README.md>🇮🇹 IT   </a>
-<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/nl/README.md>🇳🇱 NL   </a>
-<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/pt-br/README.md>🇧🇷 PT-BR   </a>
-<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/ru/README.md>🇷🇺 RU   </a>
-<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/zh/README.md>🇨🇳 ZH   </a>
-<a href="https://github.com/Ciphey/Ciphey/tree/master/translations/th/README.md">🇹🇭 TH   </a>
+<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/de/CODE_OF_CONDUCT.md>🇩🇪 DE   </a>
+<a href=https://github.com/Ciphey/Ciphey/tree/master/CODE_OF_CONDUCT.md>🇬🇧 EN   </a>
+<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/fr/CODE_OF_CONDUCT.md>🇫🇷 FR   </a>
+<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/hu/CODE_OF_CONDUCT.md>🇭🇺 HU   </a>
+<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/hi/CODE_OF_CONDUCT.md>🇮🇳 HI   </a>
+<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/id/CODE_OF_CONDUCT.md>🇮🇩 ID   </a>
+<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/it/CODE_OF_CONDUCT.md>🇮🇹 IT   </a>
+<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/nl/CODE_OF_CONDUCT.md>🇳🇱 NL   </a>
+<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/pt-br/CODE_OF_CONDUCT.md>🇧🇷 PT-BR   </a>
+<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/ru/CODE_OF_CONDUCT.md>🇷🇺 RU   </a>
+<a href="https://github.com/Ciphey/Ciphey/tree/master/translations/th/CODE_OF_CONDUCT.md">🇹🇭 TH   </a>
+<a href=https://github.com/Ciphey/Ciphey/tree/master/translations/zh/CODE_OF_CONDUCT.md>🇨🇳 ZH   </a>
 </p>
 
 หลักจรรยาบรรณของข้อตกลงผู้ร่วมให้ข้อมูล
