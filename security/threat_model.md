@@ -30,67 +30,91 @@ This document outlines the main trust boundaries, assets, and security assumptio
 - SQLite-backed persistence is trusted only as local state owned by the current user, not as authoritative truth from a trusted server.
 - GitHub workflows, release automation, and repository settings form the supply-chain boundary for published artifacts.
 
-## Primary Threats
+## STRIDE Threat Analysis
 
-### Crafted Input Causes Resource Exhaustion
+### Spoofing
 
-Attackers can supply inputs that trigger excessive search branching, expensive checker behavior, or timeout regressions.
+Relevant risks:
+
+- a malicious or unexpected source is treated as trusted during optional model download or other third-party fetches
+- release automation or dependency sources are impersonated through compromised credentials, tags, or workflow context
+
+Mitigations:
+
+- keep credential handling private to the minimum code path required for model download
+- prefer authenticated, explicit sources for release and dependency operations
+- protect repository settings, default branch controls, and workflow credentials
+
+### Tampering
+
+Relevant risks:
+
+- attacker-controlled input or local persistence modifies later decode behavior in unexpected ways
+- SQLite-backed cache or human-review data is poisoned and later reused as if it were trustworthy
+- workflow definitions, release artifacts, or dependency metadata are modified without appropriate review
+
+Mitigations:
+
+- keep storage behavior explicit and predictable
+- use test helpers instead of the real user database in tests
+- review SQLite changes for corruption, injection, and persistence-boundary risks
+- prefer reviewed changes over direct pushes to release-critical code paths
+
+### Repudiation
+
+Relevant risks:
+
+- maintainers cannot reconstruct what was changed, when a vulnerable artifact was published, or which workflow introduced it
+- incident evidence is incomplete because logs, reproduction steps, or affected revisions were not recorded
+
+Mitigations:
+
+- capture the affected version, commit, impact, and reproduction details during intake
+- keep release and workflow changes traceable through reviewed commits and pull requests
+- record advisory IDs, affected revisions, and mitigation steps in incident notes
+
+### Information Disclosure
+
+Relevant risks:
+
+- local files passed through `--file` may contain sensitive content that is mishandled or overexposed
+- configuration, database contents, or optional model-download credentials are logged, persisted, or disclosed unintentionally
+- plaintext-identification logic classifies secrets or credentials as meaningful plaintext and surfaces them unnecessarily
+
+Mitigations:
+
+- keep file access explicit and local to user-requested paths
+- do not log or persist tokens unnecessarily
+- validate checker changes with representative encoded and plaintext examples
+- treat secret-like output as a security consideration during checker tuning
+
+### Denial Of Service
+
+Relevant risks:
+
+- crafted input causes excessive search branching, expensive checker behavior, or timeout regressions
+- expensive decode paths or malformed files consume enough CPU, memory, or I/O to break the user-facing timeout contract
 
 Mitigations:
 
 - preserve timeout behavior as part of the public contract
 - keep search and checker changes covered by targeted tests and benches
 - prefer bounded or clearly costed operations when handling candidate plaintext
-
-### Unsafe Local File Handling
-
-The `--file` path and file contents may be attacker-controlled or unexpectedly sensitive.
-
-Mitigations:
-
-- keep file access explicit and local to user-requested paths
 - treat parsing and decoding failures as normal input errors, not exceptional trust signals
-- review changes in file-handling paths as security-sensitive
 
-### Token Or Secret Exposure During First-Run Setup
+### Elevation Of Privilege
 
-The enhanced-detection setup flow may involve user credentials for model download.
+Relevant risks:
 
-Mitigations:
-
-- do not log or persist tokens unnecessarily
-- keep credential handling private to the minimum code path required for model download
-- document the expected handling so regressions are easy to spot in review
-
-### Local Persistence Exposure Or Poisoning
-
-Configuration, cache, and human-review data live on disk and may influence later runs.
+- unsafe Rust, FFI, or C bindings violate memory-safety assumptions and create behavior outside intended trust boundaries
+- workflows or automation receive broader token permissions than required and can take actions beyond their intended scope
+- local persistence or setup flows gain authority they should not have over later runs or release processes
 
 Mitigations:
 
-- keep storage behavior explicit and predictable
-- use test helpers instead of the real user database in tests
-- review SQLite changes for injection, corruption, and privacy risks
-
-### False Positives Reveal Sensitive Material
-
-Plaintext-identification logic can classify secrets, credentials, or unrelated structured data as meaningful plaintext.
-
-Mitigations:
-
-- validate checker changes with representative encoded and plaintext examples
-- bias toward explainable detection behavior over opaque heuristics when risk is unclear
-- treat secret-like output as a security consideration during checker tuning
-
-### Supply-Chain Or Automation Compromise
-
-Compromised dependencies, workflows, or release automation can affect published artifacts and contributors.
-
-Mitigations:
-
-- protect the default branch
-- use Dependabot, code scanning, and secret scanning
-- prefer reviewed changes over direct pushes to release-critical code paths
+- review `unsafe`, FFI, regex, file-handling, and SQLite changes as security-sensitive
+- apply least-privilege permissions to GitHub Actions workflows and automation tokens
+- keep setup, persistence, and release boundaries narrow and explicit
 
 ## Assumptions And Out Of Scope
 
