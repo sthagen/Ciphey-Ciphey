@@ -1,5 +1,0 @@
-name: ciphey-codeql
-
-paths-ignore:
-  - vendor/**
-  - tests/generated/**
