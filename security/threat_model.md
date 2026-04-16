@@ -1,0 +1,123 @@
+# Threat Model
+
+This document outlines the main trust boundaries, assets, and security assumptions for `ciphey`.
+
+## System Overview
+
+`ciphey` is a local decoding tool with a thin CLI over a library-first core. Users provide ciphertext, files, configuration, and optional model-download credentials. The search pipeline runs decoders and checkers against attacker-controlled input and stores some local state under `~/.ciphey`.
+
+## Security Goals
+
+- protect local secrets and sensitive user data
+- avoid unsafe handling of attacker-controlled input
+- preserve integrity of release artifacts and repository automation
+- keep resource usage bounded enough that hostile input does not bypass expected timeout behavior
+
+## Key Assets
+
+- local files passed through `--file`
+- `~/.ciphey/config.toml`
+- `~/.ciphey/database.sqlite`
+- optional model files under `~/.ciphey/models/`
+- Hugging Face or other download credentials used during first-run setup
+- release artifacts, workflow definitions, and dependency metadata
+
+## Trust Boundaries
+
+- CLI arguments, stdin, and file contents are untrusted input.
+- Decoder and checker execution must treat transformed candidate strings as untrusted.
+- The first-run model download flow crosses a trust boundary into third-party services.
+- SQLite-backed persistence is trusted only as local state owned by the current user, not as authoritative truth from a trusted server.
+- GitHub workflows, release automation, and repository settings form the supply-chain boundary for published artifacts.
+
+## STRIDE Threat Analysis
+
+### Spoofing
+
+Relevant risks:
+
+- a malicious or unexpected source is treated as trusted during optional model download or other third-party fetches
+- release automation or dependency sources are impersonated through compromised credentials, tags, or workflow context
+
+Mitigations:
+
+- keep credential handling private to the minimum code path required for model download
+- prefer authenticated, explicit sources for release and dependency operations
+- protect repository settings, default branch controls, and workflow credentials
+
+### Tampering
+
+Relevant risks:
+
+- attacker-controlled input or local persistence modifies later decode behavior in unexpected ways
+- SQLite-backed cache or human-review data is poisoned and later reused as if it were trustworthy
+- workflow definitions, release artifacts, or dependency metadata are modified without appropriate review
+
+Mitigations:
+
+- keep storage behavior explicit and predictable
+- use test helpers instead of the real user database in tests
+- review SQLite changes for corruption, injection, and persistence-boundary risks
+- prefer reviewed changes over direct pushes to release-critical code paths
+
+### Repudiation
+
+Relevant risks:
+
+- maintainers cannot reconstruct what was changed, when a vulnerable artifact was published, or which workflow introduced it
+- incident evidence is incomplete because logs, reproduction steps, or affected revisions were not recorded
+
+Mitigations:
+
+- capture the affected version, commit, impact, and reproduction details during intake
+- keep release and workflow changes traceable through reviewed commits and pull requests
+- record advisory IDs, affected revisions, and mitigation steps in incident notes
+
+### Information Disclosure
+
+Relevant risks:
+
+- local files passed through `--file` may contain sensitive content that is mishandled or overexposed
+- configuration, database contents, or optional model-download credentials are logged, persisted, or disclosed unintentionally
+- plaintext-identification logic classifies secrets or credentials as meaningful plaintext and surfaces them unnecessarily
+
+Mitigations:
+
+- keep file access explicit and local to user-requested paths
+- do not log or persist tokens unnecessarily
+- validate checker changes with representative encoded and plaintext examples
+- treat secret-like output as a security consideration during checker tuning
+
+### Denial Of Service
+
+Relevant risks:
+
+- crafted input causes excessive search branching, expensive checker behavior, or timeout regressions
+- expensive decode paths or malformed files consume enough CPU, memory, or I/O to break the user-facing timeout contract
+
+Mitigations:
+
+- preserve timeout behavior as part of the public contract
+- keep search and checker changes covered by targeted tests and benches
+- prefer bounded or clearly costed operations when handling candidate plaintext
+- treat parsing and decoding failures as normal input errors, not exceptional trust signals
+
+### Elevation Of Privilege
+
+Relevant risks:
+
+- unsafe Rust, FFI, or C bindings violate memory-safety assumptions and create behavior outside intended trust boundaries
+- workflows or automation receive broader token permissions than required and can take actions beyond their intended scope
+- local persistence or setup flows gain authority they should not have over later runs or release processes
+
+Mitigations:
+
+- review `unsafe`, FFI, regex, file-handling, and SQLite changes as security-sensitive
+- apply least-privilege permissions to GitHub Actions workflows and automation tokens
+- keep setup, persistence, and release boundaries narrow and explicit
+
+## Assumptions And Out Of Scope
+
+- A fully compromised user workstation is out of scope.
+- Network threats are mostly limited to optional model download or dependency/release workflows.
+- `ciphey` is a local analysis tool, not a sandbox for safely executing untrusted code.
