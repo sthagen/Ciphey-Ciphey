@@ -31,6 +31,8 @@ This plan covers:
 - Capture the affected version, commit, impact, and reproduction details.
 - Avoid requesting real secrets unless they are necessary to validate the issue.
 
+Intake should come via email from the security.md document to the core maintainers.
+
 ### 2. Triage
 
 - Confirm whether the issue is in scope.
@@ -98,6 +100,7 @@ If the incident is tied to a RustSec, GHSA, or crates.io advisory, record the ad
 - coordinate disclosure timing with the reporter when possible
 - use a GitHub security advisory or other private coordination channel until a fix is ready
 - publish clear upgrade or mitigation guidance once disclosure is appropriate
+- Post in the Discord about this
 
 ### 6. Post-Incident Review
 
