@@ -1,6 +1,6 @@
 # Threat Model
 
-This document outlines the main trust boundaries, assets, and security assumptions for `ciphey`.
+This document outlines all the threats Ciphey may face.
 
 ## System Overview
 
@@ -8,10 +8,9 @@ This document outlines the main trust boundaries, assets, and security assumptio
 
 ## Security Goals
 
-- protect local secrets and sensitive user data
-- avoid unsafe handling of attacker-controlled input
-- preserve integrity of release artifacts and repository automation
-- keep resource usage bounded enough that hostile input does not bypass expected timeout behavior
+- protect local secrets and sensitive user data (the api keys)
+- avoid unsafe handling of attacker-controlled input (so no CLI escapes)
+- preserve integrity of release artifacts and repository automation (so users don't download malicious releases)
 
 ## Key Assets
 
@@ -19,14 +18,14 @@ This document outlines the main trust boundaries, assets, and security assumptio
 - `~/.ciphey/config.toml`
 - `~/.ciphey/database.sqlite`
 - optional model files under `~/.ciphey/models/`
-- Hugging Face or other download credentials used during first-run setup
+- Hugging Face or other download credentials used during first-run setup but not stored
 - release artifacts, workflow definitions, and dependency metadata
 
 ## Trust Boundaries
 
-- CLI arguments, stdin, and file contents are untrusted input.
+- CLI arguments, stdin, and file contents are untrusted input. Becuase Ciphey is local we should trust the user knows what they are doing.
 - Decoder and checker execution must treat transformed candidate strings as untrusted.
-- The first-run model download flow crosses a trust boundary into third-party services.
+- The first-run model download flow crosses a trust boundary into third-party services if the user downloads files (wordlists, AI models)
 - SQLite-backed persistence is trusted only as local state owned by the current user, not as authoritative truth from a trusted server.
 - GitHub workflows, release automation, and repository settings form the supply-chain boundary for published artifacts.
 
@@ -44,6 +43,7 @@ Mitigations:
 - keep credential handling private to the minimum code path required for model download
 - prefer authenticated, explicit sources for release and dependency operations
 - protect repository settings, default branch controls, and workflow credentials
+- Ensure no 1 maintainer can cut a release, and the maintainers that do have PGP keys and MFA setup.
 
 ### Tampering
 
@@ -57,8 +57,7 @@ Mitigations:
 
 - keep storage behavior explicit and predictable
 - use test helpers instead of the real user database in tests
-- review SQLite changes for corruption, injection, and persistence-boundary risks
-- prefer reviewed changes over direct pushes to release-critical code paths
+- review SQLite changes in the source code for corruption, injection, and persistence-boundary risks
 
 ### Repudiation
 
@@ -69,7 +68,7 @@ Relevant risks:
 
 Mitigations:
 
-- capture the affected version, commit, impact, and reproduction details during intake
+- capture the affected version, commit, impact, and reproduction details during intake (releases in GitHub does this)
 - keep release and workflow changes traceable through reviewed commits and pull requests
 - record advisory IDs, affected revisions, and mitigation steps in incident notes
 
@@ -77,7 +76,7 @@ Mitigations:
 
 Relevant risks:
 
-- local files passed through `--file` may contain sensitive content that is mishandled or overexposed
+- local files passed through `--file` may contain sensitive content that is mishandled or overexposed (via logging)
 - configuration, database contents, or optional model-download credentials are logged, persisted, or disclosed unintentionally
 - plaintext-identification logic classifies secrets or credentials as meaningful plaintext and surfaces them unnecessarily
 
@@ -90,17 +89,7 @@ Mitigations:
 
 ### Denial Of Service
 
-Relevant risks:
-
-- crafted input causes excessive search branching, expensive checker behavior, or timeout regressions
-- expensive decode paths or malformed files consume enough CPU, memory, or I/O to break the user-facing timeout contract
-
-Mitigations:
-
-- preserve timeout behavior as part of the public contract
-- keep search and checker changes covered by targeted tests and benches
-- prefer bounded or clearly costed operations when handling candidate plaintext
-- treat parsing and decoding failures as normal input errors, not exceptional trust signals
+Ciphey is entirely locally run, the only risk of a DoS attack is from the trusted user themselves.
 
 ### Elevation Of Privilege
 
