@@ -23,7 +23,7 @@ bench = false
 ansi_term = "0.12.1"
 chrono = "0.4.44"
 cipher_identifier = "0.2.0"
-clap = {version = "4.6.0", features = ["derive"]}
+clap = {version = "4.6.1", features = ["derive"]}
 termcolor = "1.4"
 crossbeam = "0.8"
 dirs = "6.0.0"
@@ -49,9 +49,9 @@ serde_json = "1.0"
 serial_test = "3.4.0"
 text_io = "0.1.13"
 toml = "1.1.2"
-uuid = "1.23.0"
-rand = "0.8"  # Required for candle-core compatibility
-half = "=2.3.1"  # Forced for compatibility with candle-core
+uuid = "1.23.1"
+rand = "0.10"  # Required for candle-core compatibility
+half = "=2.7.1"  # Forced for compatibility with candle-core
 
 # Dependencies used for decoding
 base64 = "0.22.1"
