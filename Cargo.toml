@@ -1,7 +1,7 @@
 [package]
 name = "ciphey"
 repository = "https://github.com/bee-san/ciphey"
-version = "0.12.0"
+version = "0.12.1"
 edition = "2021"
 description = "Automated decoding tool, Ciphey but in Rust"
 license = "MIT"
@@ -50,8 +50,8 @@ serial_test = "4.0.1"
 text_io = "0.1.13"
 toml = "1.1.2"
 uuid = "1.23.3"
-rand = "0.10"  # Required for candle-core compatibility
-half = "=2.7.1"  # Forced for compatibility with candle-core
+rand = "0.8"  # Required for candle-core compatibility
+half = "=2.3.1"  # Required for candle-core compatibility
 
 # Dependencies used for decoding
 base64 = "0.23.0"

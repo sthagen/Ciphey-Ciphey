@@ -11,6 +11,13 @@ use super::interface::Decoder;
 use brainfuck_exe::Brainfuck;
 use log::{debug, trace};
 
+/// Upper bound on the number of Brainfuck instructions the interpreter may execute.
+///
+/// Brainfuck is Turing-complete, so an untrusted program may never terminate.
+/// One million instructions is far above the valid programs in this decoder's
+/// test corpus while bounding malicious execution and output growth.
+const BRAINFUCK_INSTRUCTION_LIMIT: usize = 1_000_000;
+
 /// The Brainfuck interpreter, call:
 /// `let brainfuck_interpreter = Decoder::<BrainfuckInterpreter>::new()` to create a new instance
 /// And then call:
@@ -62,7 +69,11 @@ impl Crack for Decoder<BrainfuckInterpreter> {
         }
 
         let mut buf = vec![];
-        match Brainfuck::new(text).with_output_ref(&mut buf).execute() {
+        match Brainfuck::new(text)
+            .with_instructions_limit(BRAINFUCK_INSTRUCTION_LIMIT)
+            .with_output_ref(&mut buf)
+            .execute()
+        {
             Ok(_) => {
                 let decoded_text = String::from_utf8(buf).unwrap_or_default();
                 let checker_result = checker.check(&decoded_text);
@@ -217,6 +228,21 @@ mod tests {
             .crack("+-<>,.[]", &get_athena_checker())
             .unencrypted_text;
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn brainfuck_infinite_loop_is_bounded() {
+        // Cell 0 = 20 and is never decremented inside `[.....]`, so the loop never exits.
+        // The instruction limit must turn this into a failed decode instead of a hang.
+        let brainfuck_interpreter = Decoder::<BrainfuckInterpreter>::new();
+        let bomb = "++++++++++++++++++++[.....].";
+        let result = brainfuck_interpreter
+            .crack(bomb, &get_athena_checker())
+            .unencrypted_text;
+        assert!(
+            result.is_none(),
+            "infinite-loop brainfuck must be rejected, not run forever"
+        );
     }
 
     #[test]

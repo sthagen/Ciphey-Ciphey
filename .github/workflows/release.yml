@@ -53,7 +53,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Install cargo-dist
@@ -89,16 +89,16 @@ jobs:
       matrix:
         # For these target platforms
         include:
-        - os: "macos-11"
+        - os: "macos-15"
           dist-args: "--artifacts=local --target=aarch64-apple-darwin"
           install-dist: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.1.0/cargo-dist-installer.sh | sh"
-        - os: "macos-11"
+        - os: "macos-15-intel"
           dist-args: "--artifacts=local --target=x86_64-apple-darwin"
           install-dist: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.1.0/cargo-dist-installer.sh | sh"
-        - os: "windows-2019"
+        - os: "windows-2022"
           dist-args: "--artifacts=local --target=x86_64-pc-windows-msvc"
           install-dist: "irm  https://github.com/axodotdev/cargo-dist/releases/download/v0.1.0/cargo-dist-installer.ps1 | iex"
-        - os: "ubuntu-20.04"
+        - os: "ubuntu-22.04"
           dist-args: "--artifacts=local --target=x86_64-unknown-linux-gnu"
           install-dist: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.1.0/cargo-dist-installer.sh | sh"
 
@@ -106,7 +106,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Install cargo-dist
@@ -126,6 +126,7 @@ jobs:
           jq --raw-output ".artifacts[]?.path | select( . != null )" dist-manifest.json > uploads.txt
           echo "uploading..."
           cat uploads.txt
+          # shellcheck disable=SC2046
           gh release upload ${{ github.ref_name }} $(cat uploads.txt)
           echo "uploaded!"
 
@@ -138,7 +139,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: mark release as non-draft
@@ -150,11 +151,8 @@ jobs:
     needs: publish-release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-            toolchain: stable
-            override: true
-      - uses: katyo/publish-crates@v1
-        with:
-            registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - uses: actions/checkout@v4
+      - name: Publish package to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked

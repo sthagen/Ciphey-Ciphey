@@ -5,7 +5,14 @@
 
 version: 2
 updates:
-  - package-ecosystem: "cargo" 
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "cargo"
+    directory: "/"
     schedule:
       interval: "daily"
+    # candle-core 0.3.3 requires the rand 0.8 / half 2.3 compatibility line.
+    # Later versions compile with incompatible rand traits and break every build.
+    ignore:
+      - dependency-name: "rand"
+        versions: [">= 0.9"]
+      - dependency-name: "half"
+        versions: [">= 2.4"]

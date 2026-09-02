@@ -3,6 +3,12 @@ name: Release Builds
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GitHub release tag to build and upload
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -11,107 +17,70 @@ jobs:
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             artifact_name: ciphey
-            asset_name: ciphey-linux-x86_64
-
-          # macOS x86_64
-          - os: macos-11
+            asset_name: ciphey-linux-x86_64.tar.gz
+            archive: tar
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             artifact_name: ciphey
-            asset_name: ciphey-macos-x86_64
-
-          # macOS ARM64
-          - os: macos-11
+            asset_name: ciphey-macos-x86_64.tar.gz
+            archive: tar
+          - os: macos-15
             target: aarch64-apple-darwin
             artifact_name: ciphey
-            asset_name: ciphey-macos-aarch64
-
-          # Windows x86_64
-          - os: windows-2019
+            asset_name: ciphey-macos-aarch64.tar.gz
+            archive: tar
+          - os: windows-2022
             target: x86_64-pc-windows-msvc
             artifact_name: ciphey.exe
-            asset_name: ciphey-windows-x86_64.exe
+            asset_name: ciphey-windows-x86_64.zip
+            archive: zip
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout release tag
+        uses: actions/checkout@v4
         with:
+          ref: ${{ env.RELEASE_TAG }}
           submodules: recursive
 
-      - name: Setup Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          target: ${{ matrix.target }}
-          override: true
-
-      - name: Cache cargo registry
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo build
-        uses: actions/cache@v3
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
 
       - name: Build release binary
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --target ${{ matrix.target }}
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: cargo build --locked --release --target ${{ matrix.target }}
 
-      - name: Strip binary (Linux and macOS)
-        if: matrix.os != 'windows-2019'
+      - name: Strip Unix binary
+        if: matrix.archive == 'tar'
         run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
 
-      - name: Create tarball (Linux and macOS)
-        if: matrix.os != 'windows-2019'
+      - name: Package Unix binary
+        if: matrix.archive == 'tar'
+        shell: bash
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.artifact_name }}
-          mv ${{ matrix.asset_name }}.tar.gz ../../../
+          tar -C "target/${{ matrix.target }}/release" -czf "${{ matrix.asset_name }}" "${{ matrix.artifact_name }}"
+          shasum -a 256 "${{ matrix.asset_name }}" > "${{ matrix.asset_name }}.sha256"
 
-      - name: Create zip (Windows)
-        if: matrix.os == 'windows-2019'
+      - name: Package Windows binary
+        if: matrix.archive == 'zip'
         shell: pwsh
         run: |
-          Compress-Archive -Path target/${{ matrix.target }}/release/${{ matrix.artifact_name }} -DestinationPath ${{ matrix.asset_name }}.zip
+          $asset = "${{ matrix.asset_name }}"
+          Compress-Archive -Path "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" -DestinationPath $asset
+          $hash = (Get-FileHash -Algorithm SHA256 $asset).Hash.ToLower()
+          "$hash  $asset" | Set-Content -NoNewline -Encoding ascii "$asset.sha256"
 
-      - name: Upload release asset (Linux and macOS)
-        if: matrix.os != 'windows-2019'
-        uses: actions/upload-release-asset@v1
+      - name: Upload release assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./${{ matrix.asset_name }}.tar.gz
-          asset_name: ${{ matrix.asset_name }}.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Upload release asset (Windows)
-        if: matrix.os == 'windows-2019'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./${{ matrix.asset_name }}.zip
-          asset_name: ${{ matrix.asset_name }}.zip
-          asset_content_type: application/zip
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: gh release upload "$RELEASE_TAG" "${{ matrix.asset_name }}" "${{ matrix.asset_name }}.sha256" --clobber
