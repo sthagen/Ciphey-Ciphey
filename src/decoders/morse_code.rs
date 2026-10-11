@@ -6,7 +6,11 @@ use super::interface::Crack;
 use super::interface::Decoder;
 
 use log::{debug, info, trace};
+use once_cell::sync::Lazy;
 use regex::Regex;
+
+/// Runs of whitespace, collapsed to one space in the decoded text.
+static RE_WHITESPACE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
 
 /// Morse Code Decoder
 /// Does not support decoding of morse code with / instead of a space
@@ -20,13 +24,13 @@ impl Crack for Decoder<MorseCodeDecoder> {
             description: "Morse code is a method used in telecommunication to encode text characters as standardized sequences of two different signal durations, called dots and dashes, or dits and dahs.",
             link: "https://en.wikipedia.org/wiki/Morse_code",
             tags: vec!["morseCode", "decoder", "signals"],
-            popularity: 0.8,
+            popularity: 0.7,
             phantom: std::marker::PhantomData,
         }
     }
 
     /// This function does the actual decoding
-    /// It returns an Option<string> if it was successful
+    /// It returns an `Option<String>` if it was successful
     /// Else the Option returns nothing and the error is logged in Trace
     fn crack(&self, text: &str, checker: &CheckerTypes) -> CrackResult {
         trace!("Trying Morse Code with text {:?}", text);
@@ -35,8 +39,8 @@ impl Crack for Decoder<MorseCodeDecoder> {
         let decoded_text: Option<String> = text.split(' ').map(morse_to_alphanumeric).collect();
 
         // remove leading and trailing spaces, and collapse repeated spaces into a single space
-        let re = Regex::new(r"\s+").unwrap();
-        let decoded_text = decoded_text.map(|s| re.replace_all(s.trim(), " ").into_owned());
+        let decoded_text =
+            decoded_text.map(|s| RE_WHITESPACE.replace_all(s.trim(), " ").into_owned());
 
         trace!("Decoded text for morse code: {:?}", decoded_text);
         let mut results = CrackResult::new(self, text.to_string());
@@ -69,6 +73,10 @@ impl Crack for Decoder<MorseCodeDecoder> {
     /// Gets the name for the current decoder
     fn get_name(&self) -> &str {
         self.name
+    }
+    /// Gets the popularity for the current decoder
+    fn get_popularity(&self) -> f32 {
+        self.popularity
     }
     /// Gets the description for the current decoder
     fn get_description(&self) -> &str {

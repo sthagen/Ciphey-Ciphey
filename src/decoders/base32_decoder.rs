@@ -1,6 +1,6 @@
 //! Decodes a base32 string
 //! Performs error handling and returns a string
-//! Call base32_decoder.crack to use. It returns option<String> and check with
+//! Call base32_decoder.crack to use. It returns `Option<String>` and check with
 //! `result.is_some()` to see if it returned okay.
 
 use crate::checkers::CheckerTypes;
@@ -40,13 +40,13 @@ impl Crack for Decoder<Base32Decoder> {
             description: "Base32 is a group of binary-to-text encoding schemes that represent binary data (more specifically, a sequence of 8-bit bytes) in an ASCII string format by translating the data into a radix-32 representation.",
             link: "https://en.wikipedia.org/wiki/Base32",
             tags: vec!["base32", "decoder", "base"],
-            popularity: 1.0,
+            popularity: 0.8,
             phantom: std::marker::PhantomData,
         }
     }
 
     /// This function does the actual decoding
-    /// It returns an Option<string> if it was successful
+    /// It returns an `Option<String>` if it was successful
     /// Else the Option returns nothing and the error is logged in Trace
     fn crack(&self, text: &str, checker: &CheckerTypes) -> CrackResult {
         trace!("Trying Base32 with text {:?}", text);
@@ -81,6 +81,10 @@ impl Crack for Decoder<Base32Decoder> {
     /// Gets the name for the current decoder
     fn get_name(&self) -> &str {
         self.name
+    }
+    /// Gets the popularity for the current decoder
+    fn get_popularity(&self) -> f32 {
+        self.popularity
     }
 
     /// Gets the description for the current decoder

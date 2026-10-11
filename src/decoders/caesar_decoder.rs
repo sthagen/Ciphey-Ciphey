@@ -1,11 +1,11 @@
 //! Decode a caesar cipher string
 //! Performs error handling and returns a string
-//! Call caesar_decoder.crack to use. It returns option<String> and check with
+//! Call caesar_decoder.crack to use. It returns `Option<String>` and check with
 //! `result.is_some()` to see if it returned okay.
 //! Uses Low sensitivity for gibberish detection.
 
 use crate::checkers::CheckerTypes;
-use crate::decoders::interface::check_string_success;
+use crate::decoders::interface::candidates_until_unchanged;
 use gibberish_or_not::Sensitivity;
 
 use super::crack_results::CrackResult;
@@ -49,36 +49,34 @@ impl Crack for Decoder<CaesarDecoder> {
     }
 
     /// This function does the actual decoding
-    /// It returns an Option<string> if it was successful
+    /// It returns an `Option<String>` if it was successful
     /// Else the Option returns nothing and the error is logged in Trace
     fn crack(&self, text: &str, checker: &CheckerTypes) -> CrackResult {
         trace!("Trying Caesar Cipher with text {:?}", text);
         let mut results = CrackResult::new(self, text.to_string());
-        let mut decoded_strings = Vec::new();
 
         // Use the checker with Low sensitivity for Caesar cipher
         let checker_with_sensitivity = checker.with_sensitivity(Sensitivity::Low);
 
-        for shift in 1..=25 {
-            let decoded_text = caesar(text, shift);
-            decoded_strings.push(decoded_text);
-            let borrowed_decoded_text = &decoded_strings[decoded_strings.len() - 1];
-            if !check_string_success(borrowed_decoded_text, text) {
-                info!(
-                    "Failed to decode caesar because check_string_success returned false on string {}. This means the string is 'funny' as it wasn't modified.",
-                    borrowed_decoded_text
-                );
-                return results;
-            }
-            let checker_result = checker_with_sensitivity.check(borrowed_decoded_text);
-            // If checkers return true, exit early with the correct result
-            if checker_result.is_identified {
-                trace!("Found a match with caesar shift {}", shift);
-                results.unencrypted_text = Some(vec![borrowed_decoded_text.to_string()]);
-                results.update_checker(&checker_result);
-                results.key = Some(shift.to_string());
-                return results;
-            }
+        // Shifts 1 to 25, tried in order. A shift that leaves the text unchanged (no
+        // letters to shift) ends the search without results, after the shifts before it.
+        let (decoded_strings, unchanged) =
+            candidates_until_unchanged(text, (1..=25).map(|shift| caesar(text, shift)));
+        let tried = &decoded_strings[..unchanged.unwrap_or(decoded_strings.len())];
+        if let Some((i, checker_result)) = checker_with_sensitivity.first_identified(tried) {
+            let shift = i + 1;
+            trace!("Found a match with caesar shift {}", shift);
+            results.unencrypted_text = Some(vec![decoded_strings[i].clone()]);
+            results.update_checker(&checker_result);
+            results.key = Some(shift.to_string());
+            return results;
+        }
+        if let Some(i) = unchanged {
+            info!(
+                "Failed to decode caesar because check_string_success returned false on string {}. This means the string is 'funny' as it wasn't modified.",
+                decoded_strings[i]
+            );
+            return results;
         }
         results.unencrypted_text = Some(decoded_strings);
         results
@@ -91,6 +89,10 @@ impl Crack for Decoder<CaesarDecoder> {
     fn get_name(&self) -> &str {
         self.name
     }
+    /// Gets the popularity for the current decoder
+    fn get_popularity(&self) -> f32 {
+        self.popularity
+    }
     /// Gets the description for the current decoder
     fn get_description(&self) -> &str {
         self.description
@@ -102,7 +104,7 @@ impl Crack for Decoder<CaesarDecoder> {
 }
 
 /// Caesar cipher to rotate cipher text by shift and return an owned String.
-fn caesar(cipher: &str, shift: u8) -> String {
+pub(crate) fn caesar(cipher: &str, shift: u8) -> String {
     cipher
         .chars()
         .map(|c| {

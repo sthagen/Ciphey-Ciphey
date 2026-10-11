@@ -1,4 +1,23 @@
-//! ciphey is an automatic decoding and cracking tool. https://github.com/bee-san/ciphey
+//! ciphey is an automatic decoding and cracking tool. <https://github.com/bee-san/ciphey>
+//!
+//! The library has three parts:
+//!
+//! * [`perform_cracking`] runs the whole search: give it text and it works out which
+//!   decoders, in which order, turn it into plaintext.
+//! * [`decoders`] runs one decoder: a function per decoder such as
+//!   [`decoders::base64`] or [`decoders::caesar`], [`decode_with`] to pick one by name,
+//!   and [`list_decoders`].
+//! * [`detection`] says whether a text is plaintext and what it is:
+//!   [`detect_plaintext`] and [`is_plaintext`].
+//!
+//! ```
+//! let decoded = ciphey::decoders::hexadecimal("3139322e3136382e302e31");
+//! let plaintext = decoded.plaintext().unwrap();
+//! assert_eq!(plaintext.text, "192.168.0.1");
+//!
+//! let detection = plaintext.detection.as_ref().unwrap();
+//! assert_eq!(detection.description, "Internet Protocol (IP) Address Version 4");
+//! ```
 // Warns in case we forget to include documentation
 #![warn(
     missing_docs,
@@ -36,6 +55,10 @@ pub mod cli_pretty_printing;
 pub mod config;
 /// Decoders are the functions that actually perform the decodings.
 pub mod decoders;
+/// Plaintext detection: run Ciphey's plaintext checkers on a text.
+pub mod detection;
+/// The error type returned by the library API.
+mod error;
 /// The filtration system builds what decoders to use at runtime
 /// By default it will use them all.
 mod filtration_system;
@@ -62,6 +85,11 @@ use crate::{
 };
 
 use self::decoders::crack_results::CrackResult;
+pub use decoders::{
+    decode_with, decoder_info, list_decoders, Candidate, DecodeOptions, Decoded, DecoderInfo,
+};
+pub use detection::{detect_plaintext, is_plaintext, DetectOptions, Detection};
+pub use error::CipheyError;
 
 /// The main function to call which performs the cracking.
 /// ```rust
@@ -77,29 +105,51 @@ use self::decoders::crack_results::CrackResult;
 /// config.verbose = 0;
 /// let result = perform_cracking("VGhlIG1haW4gZnVuY3Rpb24gdG8gY2FsbCB3aGljaCBwZXJmb3JtcyB0aGUgY3JhY2tpbmcu", config);
 /// assert!(true);
-/// // The result is an Option<DecoderResult> so we need to unwrap it
+/// // The result is a Result<Option<DecoderResult>, CipheyError> so we need to unwrap it twice
 /// // The DecoderResult contains the text and the path
 /// // The path is a vector of CrackResults which contains the decoder used and the keys used
 /// // The text is a vector of strings because some decoders return more than 1 text (Caesar)
-/// // Becuase the program has returned True, the first result is the plaintext (and it will only have 1 result).
+/// // Because the program has returned True, the first result is the plaintext (and it will only have 1 result).
 /// // This is some tech debt we need to clean up https://github.com/bee-san/ciphey/issues/130
-/// assert!(result.unwrap().text[0] == "The main function to call which performs the cracking.");
+/// assert!(result.unwrap().unwrap().text[0] == "The main function to call which performs the cracking.");
 /// ```
 /// The human checker defaults to off in the config, but it returns the first thing it finds currently.
-/// We have an issue for that here https://github.com/bee-san/ciphey/issues/129
+/// We have an issue for that here <https://github.com/bee-san/ciphey/issues/129>
 /// ```rust
 /// use ciphey::perform_cracking;
 /// use ciphey::config::Config;
 /// let mut config = Config::default();
 /// # let _test_db = ciphey::TestDatabase::default();
 /// # ciphey::set_test_db_path();
-/// // If the program cannot decode the text it will return None.
+/// // If the search finishes without finding plaintext it will return Ok(None).
 /// let result = perform_cracking("", config);
 /// assert!(true);
-/// assert!(result.is_none());
+/// assert!(result.unwrap().is_none());
 /// ```
-pub fn perform_cracking(text: &str, config: Config) -> Option<DecoderResult> {
+/// An invalid regex is an error rather than a panic:
+/// ```rust
+/// use ciphey::{perform_cracking, CipheyError};
+/// use ciphey::config::Config;
+/// let mut config = Config::default();
+/// # let _test_db = ciphey::TestDatabase::default();
+/// # ciphey::set_test_db_path();
+/// config.regex = Some("(unclosed".to_string());
+/// let result = perform_cracking("aGVsbG8=", config);
+/// assert!(matches!(result, Err(CipheyError::InvalidRegex(_))));
+/// ```
+///
+/// # Errors
+///
+/// * [`CipheyError::InvalidRegex`] if `config.regex` does not compile.
+/// * [`CipheyError::Timeout`] if `config.timeout` expires before the search finishes.
+///   Never returned in `top_results` mode, which always runs until the timeout.
+pub fn perform_cracking(text: &str, config: Config) -> Result<Option<DecoderResult>, CipheyError> {
     let start_time = SystemTime::now();
+
+    // Reject a bad regex here instead of panicking in the regex checker later.
+    if let Some(pattern) = &config.regex {
+        regex::Regex::new(pattern).map_err(CipheyError::InvalidRegex)?;
+    }
 
     // If top_results is enabled, ensure human_checker_on is disabled
     let mut modified_config = config;
@@ -108,6 +158,13 @@ pub fn perform_cracking(text: &str, config: Config) -> Option<DecoderResult> {
         // Clear any previous results when starting a new cracking session
         storage::wait_athena_storage::clear_plaintext_results();
     }
+
+    // The cache maps an input to the plaintext the default checkers accepted. Skip it:
+    // * with a regex crib: a cached plaintext may not match the crib, and a crib match
+    //   (which can be an intermediate encoding) isn't the answer for other runs
+    // * in top_results mode: every candidate has to be found by searching, and the one
+    //   returned is just the first candidate, not a confirmed plaintext
+    let use_cache = modified_config.regex.is_none() && !modified_config.top_results;
 
     config::set_global_config(modified_config);
     let text = text.to_string();
@@ -127,7 +184,11 @@ pub fn perform_cracking(text: &str, config: Config) -> Option<DecoderResult> {
     /*  Checks to see if the encoded text already exists in the cache
      *  returns cached result if so
      */
-    let cache_result = storage::database::read_cache(&text);
+    let cache_result = if use_cache {
+        storage::database::read_cache(&text)
+    } else {
+        Ok(None)
+    };
     match cache_result {
         Ok(cache_row) => match cache_row {
             Some(row) => {
@@ -154,10 +215,10 @@ pub fn perform_cracking(text: &str, config: Config) -> Option<DecoderResult> {
                     })
                     .collect();
                 if let Ok(path) = path_result {
-                    return Some(DecoderResult {
+                    return Ok(Some(DecoderResult {
                         text: vec![row.decoded_text],
                         path,
-                    });
+                    }));
                 }
             }
             None => {
@@ -173,6 +234,13 @@ pub fn perform_cracking(text: &str, config: Config) -> Option<DecoderResult> {
                 e
             ));
         }
+    }
+
+    // Every check from here on runs LemmeKnow (unless a regex crib replaces the checkers),
+    // so start compiling its regexes now, all at once, instead of one after another
+    // during the first check.
+    if get_config().regex.is_none() {
+        checkers::lemmeknow_checker::warm_up();
     }
 
     let initial_check_for_plaintext = check_if_input_text_is_plaintext(&text);
@@ -191,18 +259,20 @@ pub fn perform_cracking(text: &str, config: Config) -> Option<DecoderResult> {
             path: vec![crack_result],
         };
 
-        let cache_result = success_result_to_cache(&text, start_time, &output);
-        match cache_result {
-            Ok(_) => (),
-            Err(e) => {
-                cli_pretty_printing::warning(&format!(
-                    "DEBUG: lib.rs - Error inserting decoder result into cache table: {}",
-                    e
-                ));
-            }
-        };
+        if use_cache {
+            let cache_result = success_result_to_cache(&text, start_time, &output);
+            match cache_result {
+                Ok(_) => (),
+                Err(e) => {
+                    cli_pretty_printing::warning(&format!(
+                        "DEBUG: lib.rs - Error inserting decoder result into cache table: {}",
+                        e
+                    ));
+                }
+            };
+        }
 
-        return Some(output);
+        return Ok(Some(output));
     }
 
     // Build a new search tree
@@ -214,7 +284,7 @@ pub fn perform_cracking(text: &str, config: Config) -> Option<DecoderResult> {
     ));
     // Perform the search algorithm
     // It will either return a failure or success.
-    let result = searchers::search_for_plaintext(text.clone());
+    let result = searchers::search_for_plaintext(text.clone())?;
     cli_pretty_printing::success(&format!(
         "DEBUG: lib.rs - Result from search_for_plaintext: {:?}",
         result.is_some()
@@ -227,19 +297,21 @@ pub fn perform_cracking(text: &str, config: Config) -> Option<DecoderResult> {
     }
 
     if let Some(output) = &result {
-        let cache_result = success_result_to_cache(&text, start_time, output);
-        match cache_result {
-            Ok(_) => (),
-            Err(e) => {
-                cli_pretty_printing::warning(&format!(
-                    "DEBUG: lib.rs - Error inserting decoder result into cache table: {}",
-                    e
-                ));
-            }
-        };
+        if use_cache {
+            let cache_result = success_result_to_cache(&text, start_time, output);
+            match cache_result {
+                Ok(_) => (),
+                Err(e) => {
+                    cli_pretty_printing::warning(&format!(
+                        "DEBUG: lib.rs - Error inserting decoder result into cache table: {}",
+                        e
+                    ));
+                }
+            };
+        }
     }
 
-    result
+    Ok(result)
 }
 
 /// Checks if the given input is plaintext or not
@@ -318,6 +390,14 @@ impl DecoderResult {
     }
 }
 
+/// Clears the decoder success statistics the A* search keeps for the life of the
+/// process, so the next search starts the way it would in a fresh `ciphey` process.
+/// Benchmarks use it to make repeated searches comparable.
+#[doc(hidden)]
+pub fn reset_decoder_stats() {
+    searchers::reset_decoder_stats();
+}
+
 /// Gets the test directory path
 #[doc(hidden)]
 pub fn get_test_dir_path() -> std::path::PathBuf {
@@ -375,7 +455,7 @@ mod tests {
         set_test_db_path();
 
         let config = Config::default();
-        perform_cracking("SGVscCBJIG5lZWQgc29tZWJvZHkh", config);
+        perform_cracking("SGVscCBJIG5lZWQgc29tZWJvZHkh", config).unwrap();
     }
 
     #[test]
@@ -384,7 +464,7 @@ mod tests {
         set_test_db_path();
 
         let config = Config::default();
-        let result = perform_cracking("", config);
+        let result = perform_cracking("", config).unwrap();
         assert!(result.is_none());
     }
 
@@ -394,9 +474,35 @@ mod tests {
         set_test_db_path();
 
         let config = Config::default();
-        let result = perform_cracking("aGVsbG8gdGhlcmUgZ2VuZXJhbA==", config);
+        let result = perform_cracking("aGVsbG8gdGhlcmUgZ2VuZXJhbA==", config).unwrap();
         assert!(result.is_some());
         assert!(result.unwrap().text[0] == "hello there general")
+    }
+
+    #[test]
+    fn test_perform_cracking_decodes_long_base64() {
+        // 966 characters of plaintext. Text between 821 and 5,000 characters used to be
+        // rejected as a result, so this ran into the timeout.
+        let _test_db = TestDatabase::default();
+        set_test_db_path();
+
+        let plaintext = "It was the best of times, it was the worst of times, it was the age of \
+            wisdom, it was the age of foolishness, it was the epoch of belief. "
+            .repeat(7);
+        assert!(plaintext.len() > 900);
+        let encoded = {
+            use base64::Engine as _;
+            base64::engine::general_purpose::STANDARD.encode(&plaintext)
+        };
+        let config = Config {
+            // Unoptimised builds need a while for the first search step on this much text
+            timeout: 60,
+            ..Config::default()
+        };
+        let result = perform_cracking(&encoded, config).unwrap();
+        let result = result.expect("the long Base64 should be decoded");
+        assert_eq!(result.text[0], plaintext);
+        assert_eq!(result.path.last().unwrap().decoder, "Base64");
     }
 
     #[test]
@@ -405,7 +511,7 @@ mod tests {
         set_test_db_path();
 
         let config = Config::default();
-        let result = perform_cracking("192.168.0.1", config);
+        let result = perform_cracking("192.168.0.1", config).unwrap();
         // Since we are exiting early the path should be of length 1, which is 1 check (the Athena check)
         assert!(result.unwrap().path.len() == 1);
     }
@@ -420,7 +526,7 @@ mod tests {
         set_test_db_path();
 
         let config = Config::default();
-        let result = perform_cracking("Ebgngr zr 13 cynprf!", config);
+        let result = perform_cracking("Ebgngr zr 13 cynprf!", config).unwrap();
         // We return None since the input is the plaintext
         assert!(result.unwrap().text[0] == "Rotate me 13 places!");
     }
@@ -431,7 +537,7 @@ mod tests {
         set_test_db_path();
 
         let config = Config::default();
-        let result = perform_cracking("Hello, World!", config);
+        let result = perform_cracking("Hello, World!", config).unwrap();
         // We return None since the input is the plaintext
         let res_unwrapped = result.unwrap();
         assert!(&res_unwrapped.text[0] == "Hello, World!");

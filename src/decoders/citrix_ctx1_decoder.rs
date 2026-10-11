@@ -36,7 +36,7 @@ impl Crack for Decoder<CitrixCTX1Decoder> {
     }
 
     /// This function does the actual decoding
-    /// It returns an Option<string> if it was successful
+    /// It returns an `Option<String>` if it was successful
     /// Else the Option returns nothing and the error is logged in Trace
     fn crack(&self, text: &str, checker: &CheckerTypes) -> CrackResult {
         trace!("Trying citrix_ctx1 with text {:?}", text);
@@ -74,6 +74,10 @@ impl Crack for Decoder<CitrixCTX1Decoder> {
     /// Gets the name for the current decoder
     fn get_name(&self) -> &str {
         self.name
+    }
+    /// Gets the popularity for the current decoder
+    fn get_popularity(&self) -> f32 {
+        self.popularity
     }
     /// Gets the description for the current decoder
     fn get_description(&self) -> &str {
@@ -160,7 +164,7 @@ mod tests {
 
     #[test]
     fn citrix_ctx1_handles_substraction_overflow() {
-        // This tests if Citrix CTX1 can handle substraction overflows
+        // This tests if Citrix CTX1 can handle subtraction overflows
         // It should return None and not panic
         let citrix_ctx1_decoder = Decoder::<CitrixCTX1Decoder>::new();
         let result = citrix_ctx1_decoder

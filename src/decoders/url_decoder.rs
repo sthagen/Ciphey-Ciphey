@@ -1,6 +1,6 @@
 //! Decode a url encoded string
 //! Performs error handling and returns a string
-//! Call url_decoder.crack to use. It returns option<String> and check with
+//! Call url_decoder.crack to use. It returns `Option<String>` and check with
 //! `result.is_some()` to see if it returned okay.
 
 use crate::checkers::CheckerTypes;
@@ -39,13 +39,13 @@ impl Crack for Decoder<URLDecoder> {
             description: "URL encoding, officially known as percent-encoding, is a method to encode arbitrary data in a Uniform Resource Identifier (URI) using only the limited US-ASCII characters legal within a URI.",
             link: "https://en.wikipedia.org/wiki/URL_encoding",
             tags: vec!["url", "web", "decoder", "base"],
-            popularity: 0.6,
+            popularity: 0.7,
             phantom: std::marker::PhantomData,
         }
     }
 
     /// This function does the actual decoding
-    /// It returns an Option<string> if it was successful
+    /// It returns an `Option<String>` if it was successful
     /// Else the Option returns nothing and the error is logged in Trace
     fn crack(&self, text: &str, checker: &CheckerTypes) -> CrackResult {
         trace!("Trying url with text {:?}", text);
@@ -82,6 +82,10 @@ impl Crack for Decoder<URLDecoder> {
     /// Gets the name for the current decoder
     fn get_name(&self) -> &str {
         self.name
+    }
+    /// Gets the popularity for the current decoder
+    fn get_popularity(&self) -> f32 {
+        self.popularity
     }
     /// Gets the description for the current decoder
     fn get_description(&self) -> &str {

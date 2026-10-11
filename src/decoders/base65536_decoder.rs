@@ -1,6 +1,6 @@
 //! Decode a base65536 string
 //! Performs error handling and returns a string
-//! Call base65536_decoder.crack to use. It returns option<String> and check with
+//! Call base65536_decoder.crack to use. It returns `Option<String>` and check with
 //! `result.is_some()` to see if it returned okay.
 
 use crate::checkers::CheckerTypes;
@@ -39,13 +39,13 @@ impl Crack for Decoder<Base65536Decoder> {
             description: "Base65536 is a binary encoding optimised for UTF-32-encoded text. Base65536 uses only \"safe\" Unicode code points - no unassigned code points, no whitespace, no control characters, etc.",
             link: "https://github.com/qntm/base65536",
             tags: vec!["base65536", "decoder", "base"],
-            popularity: 0.1,
+            popularity: 0.2,
             phantom: std::marker::PhantomData,
         }
     }
 
     /// This function does the actual decoding
-    /// It returns an Option<string> if it was successful
+    /// It returns an `Option<String>` if it was successful
     /// Else the Option returns nothing and the error is logged in Trace
     fn crack(&self, text: &str, checker: &CheckerTypes) -> CrackResult {
         trace!("Trying base65536 with text {:?}", text);
@@ -82,6 +82,10 @@ impl Crack for Decoder<Base65536Decoder> {
     /// Gets the name for the current decoder
     fn get_name(&self) -> &str {
         self.name
+    }
+    /// Gets the popularity for the current decoder
+    fn get_popularity(&self) -> f32 {
+        self.popularity
     }
     /// Gets the description for the current decoder
     fn get_description(&self) -> &str {

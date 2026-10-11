@@ -1,11 +1,11 @@
 //! Decode a ROT47 cipher string
 //! Performs error handling and returns a string
-//! Call rot47_decoder.crack to use. It returns option<String> and check with
+//! Call rot47_decoder.crack to use. It returns `Option<String>` and check with
 //! `result.is_some()` to see if it returned okay.
 //! Uses Low sensitivity for gibberish detection.
 
 use crate::checkers::CheckerTypes;
-use crate::decoders::interface::check_string_success;
+use crate::decoders::interface::candidates_until_unchanged;
 use gibberish_or_not::Sensitivity;
 
 use super::crack_results::CrackResult;
@@ -23,42 +23,38 @@ impl Crack for Decoder<ROT47Decoder> {
             description: "ROT47 is a derivative of ROT13 which, in addition to scrambling the basic letters, treats numbers and common symbols. Instead of using the sequence A–Z as the alphabet, ROT47 uses a larger set of characters from the common character encoding known as ASCII. Specifically, the 7-bit printable characters, excluding space, from decimal 33 '!' through 126 '~', 94 in total.",
             link: "https://en.wikipedia.org/wiki/ROT13#Variants",
             tags: vec!["rot47", "substitution", "decoder", "reciprocal"],
-            popularity: 1.0,
+            popularity: 0.6,
             phantom: std::marker::PhantomData,
         }
     }
 
     /// This function does the actual decoding
-    /// It returns an Option<string> if it was successful
+    /// It returns an `Option<String>` if it was successful
     /// Else the Option returns nothing and the error is logged in Trace
     fn crack(&self, text: &str, checker: &CheckerTypes) -> CrackResult {
         trace!("Trying rot47 with text {:?}", text);
         let mut results = CrackResult::new(self, text.to_string());
-        let mut decoded_strings = Vec::new();
 
         // Use the checker with Low sensitivity for ROT47 cipher
         let checker_with_sensitivity = checker.with_sensitivity(Sensitivity::Low);
 
-        // loops through all possible shifts up to 94
-        for shift in 1..94 {
-            let decoded_text = rot47_to_alphabet(text, shift);
-            decoded_strings.push(decoded_text);
-            let borrowed_decoded_text = &decoded_strings[decoded_strings.len() - 1];
-            if !check_string_success(borrowed_decoded_text, text) {
-                info!(
-                    "Failed to decode rot47 because check_string_success returned false on string {}. This means the string is 'funny' as it wasn't modified.",
-                    borrowed_decoded_text
-                );
-                return results;
-            }
-            let checker_result = checker_with_sensitivity.check(borrowed_decoded_text);
-            // If checkers return true, exit early with the correct result
-            if checker_result.is_identified {
-                trace!("Found a match with rot47 shift {}", shift);
-                results.unencrypted_text = Some(vec![borrowed_decoded_text.to_string()]);
-                results.update_checker(&checker_result);
-                return results;
-            }
+        // All shifts up to 94, tried in order. A shift that leaves the text unchanged
+        // ends the search without results, after the shifts before it.
+        let (decoded_strings, unchanged) =
+            candidates_until_unchanged(text, (1..94).map(|shift| rot47_to_alphabet(text, shift)));
+        let tried = &decoded_strings[..unchanged.unwrap_or(decoded_strings.len())];
+        if let Some((i, checker_result)) = checker_with_sensitivity.first_identified(tried) {
+            trace!("Found a match with rot47 shift {}", i + 1);
+            results.unencrypted_text = Some(vec![decoded_strings[i].clone()]);
+            results.update_checker(&checker_result);
+            return results;
+        }
+        if let Some(i) = unchanged {
+            info!(
+                "Failed to decode rot47 because check_string_success returned false on string {}. This means the string is 'funny' as it wasn't modified.",
+                decoded_strings[i]
+            );
+            return results;
         }
         results.unencrypted_text = Some(decoded_strings);
         results
@@ -71,6 +67,10 @@ impl Crack for Decoder<ROT47Decoder> {
     fn get_name(&self) -> &str {
         self.name
     }
+    /// Gets the popularity for the current decoder
+    fn get_popularity(&self) -> f32 {
+        self.popularity
+    }
     /// Gets the description for the current decoder
     fn get_description(&self) -> &str {
         self.description
@@ -82,7 +82,7 @@ impl Crack for Decoder<ROT47Decoder> {
 }
 
 /// Maps rot47 to the alphabet (up to ROT94 with the ROT47 alphabet)
-fn rot47_to_alphabet(text: &str, shift: u8) -> String {
+pub(crate) fn rot47_to_alphabet(text: &str, shift: u8) -> String {
     let mut result = String::new();
     for c in text.chars() {
         let mut c = c as u8;

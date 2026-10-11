@@ -1,6 +1,6 @@
 //! Decode a z85 string
 //! Performs error handling and returns a string
-//! Call z85_decoder.crack to use. It returns option<String> and check with
+//! Call z85_decoder.crack to use. It returns `Option<String>` and check with
 //! `result.is_some()` to see if it returned okay.
 use crate::checkers::CheckerTypes;
 use crate::decoders::interface::check_string_success;
@@ -39,13 +39,13 @@ impl Crack for Decoder<Z85Decoder> {
             description: "Ascii85, also called Base85, is a form of binary-to-text encoding that uses five ASCII characters to represent four bytes of binary data. […] Other base-85 encodings like Z85 and RFC 1924 are designed to be safe in source code.",
             link: "https://en.wikipedia.org/wiki/Ascii85",
             tags: vec!["z85", "decoder", "base85"],
-            popularity: 0.6,
+            popularity: 0.3,
             phantom: std::marker::PhantomData,
         }
     }
 
     /// This function does the actual decoding
-    /// It returns an Option<string> if it was successful
+    /// It returns an `Option<String>` if it was successful
     /// Else the Option returns nothing and the error is logged in Trace
     fn crack(&self, text: &str, checker: &CheckerTypes) -> CrackResult {
         trace!("Trying Z85 with text {:?}", text);
@@ -80,6 +80,10 @@ impl Crack for Decoder<Z85Decoder> {
     /// Gets the name for the current decoder
     fn get_name(&self) -> &str {
         self.name
+    }
+    /// Gets the popularity for the current decoder
+    fn get_popularity(&self) -> f32 {
+        self.popularity
     }
     /// Gets the description for the current decoder
     fn get_description(&self) -> &str {

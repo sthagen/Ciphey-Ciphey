@@ -1,6 +1,6 @@
 //! Run a brainfuck program and return its output
 //! Performs error handling and returns a string
-//! Call brainfuck_interpreter.crack to use. It returns Option<String> and check with
+//! Call brainfuck_interpreter.crack to use. It returns `Option<String>` and check with
 //! `result.is_some()` to see if it returned okay.
 use crate::checkers::CheckerTypes;
 
@@ -16,7 +16,7 @@ use log::{debug, trace};
 /// Brainfuck is Turing-complete, so an untrusted program may never terminate.
 /// One million instructions is far above the valid programs in this decoder's
 /// test corpus while bounding malicious execution and output growth.
-const BRAINFUCK_INSTRUCTION_LIMIT: usize = 1_000_000;
+pub(crate) const BRAINFUCK_INSTRUCTION_LIMIT: usize = 1_000_000;
 
 /// The Brainfuck interpreter, call:
 /// `let brainfuck_interpreter = Decoder::<BrainfuckInterpreter>::new()` to create a new instance
@@ -45,13 +45,13 @@ impl Crack for Decoder<BrainfuckInterpreter> {
             description: "Brainfuck is an esoteric programming language created in 1993 by Swiss student Urban Müller. Designed to be extremely minimalistic, the language consists of only eight simple commands, a data pointer, and an instruction pointer.",
             link: "https://en.wikipedia.org/wiki/Brainfuck",
             tags: vec!["decoder", "brainfuck"],
-            popularity: 0.6,
+            popularity: 0.3,
             phantom: std::marker::PhantomData,
         }
     }
 
     /// This function does the actual decoding
-    /// It returns an Option<string> if it was successful
+    /// It returns an `Option<String>` if it was successful
     /// Else the Option returns nothing and the error is logged in Trace
     fn crack(&self, text: &str, checker: &CheckerTypes) -> CrackResult {
         trace!("Trying brainfuck with text {:?}", text);
@@ -95,6 +95,10 @@ impl Crack for Decoder<BrainfuckInterpreter> {
     /// Gets the name for the current decoder
     fn get_name(&self) -> &str {
         self.name
+    }
+    /// Gets the popularity for the current decoder
+    fn get_popularity(&self) -> f32 {
+        self.popularity
     }
     /// Gets the description for the current decoder
     fn get_description(&self) -> &str {

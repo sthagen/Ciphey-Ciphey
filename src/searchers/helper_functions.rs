@@ -31,6 +31,11 @@ pub fn update_decoder_stats(decoder: &str, success: bool) {
     // TODO: Write this data to a file for persistence
 }
 
+/// Forget the decoder statistics, as if the process had just started.
+pub fn reset_decoder_stats() {
+    DECODER_SUCCESS_RATES.lock().unwrap().clear();
+}
+
 /// Get the success rate of a decoder
 ///
 /// # Arguments
@@ -63,31 +68,49 @@ pub fn get_decoder_success_rate(decoder: &str) -> f32 {
 ///
 /// * `true` if the sequence is common, `false` otherwise
 pub fn is_common_sequence(prev_decoder: &str, current_cipher: &str) -> bool {
-    // Define common sequences focusing on base decoders
-    match (prev_decoder, current_cipher) {
-        // Base64 commonly followed by other encodings
-        ("Base64Decoder", "Base32Decoder") => true,
-        ("Base64Decoder", "Base58Decoder") => true,
-        ("Base64Decoder", "Base85Decoder") => true,
-        ("Base64Decoder", "Base64Decoder") => true,
-
-        // Base32 sequences
-        ("Base32Decoder", "Base64Decoder") => true,
-        ("Base32Decoder", "Base85Decoder") => true,
-        ("Base32Decoder", "Base32Decoder") => true,
-
-        // Base58 sequences
-        ("Base58Decoder", "Base64Decoder") => true,
-        ("Base58Decoder", "Base32Decoder") => true,
-        ("Base58Decoder", "Base58Decoder") => true,
-
-        // Base85 sequences
-        ("Base85Decoder", "Base64Decoder") => true,
-        ("Base85Decoder", "Base32Decoder") => true,
-        ("Base85Decoder", "Base85Decoder") => true,
-        // No match found
-        _ => false,
-    }
+    // Any two binary-to-text encodings stack, including the same one twice. UTF-16 decodes
+    // the bytes they produce (PowerShell's -EncodedCommand is Base64 of UTF-16LE). Running it
+    // twice in a row is cheap: its output has no NULs, so its first check rejects it.
+    const STACKABLE: &[&str] = &[
+        "Base64",
+        "Base64 Alt",
+        "Base32",
+        "Base36",
+        "Base58 Bitcoin",
+        "Base58 Ripple",
+        "Base58 Monero",
+        "Base58 Flickr",
+        "Base85",
+        "Base91",
+        "Base92",
+        "Base65536",
+        "Base100",
+        // Chinese CTFs wrap it in Base64 or hex, and hide Base64 inside it
+        "Core Socialist Values",
+        "Z85",
+        "Ascii85",
+        "Uuencode",
+        "Hexadecimal",
+        "Hexdump",
+        "Decimal",
+        "Big integer to bytes",
+        "Binary",
+        "Octal",
+        "HTML Entities",
+        "URL",
+        "Unicode Escapes",
+        // Escaped strings get Base64'd, and escaped twice: `\\x41` -> `\x41` -> `A`
+        "Backslash Escapes",
+        "Quoted-Printable",
+        "UTF-16",
+        // Compressed data is usually wrapped in one of the above, and can be nested
+        "Zlib",
+        "Gzip",
+        "Raw DEFLATE",
+        "Bzip2",
+        "XZ",
+    ];
+    STACKABLE.contains(&prev_decoder) && STACKABLE.contains(&current_cipher)
 }
 
 /// Calculate the quality of a string for pruning
@@ -145,59 +168,71 @@ pub fn calculate_non_printable_ratio(text: &str) -> f32 {
     non_printable_count as f32 / text.len() as f32
 }
 
-/// Generate a heuristic value for A* search prioritization
-///
-/// The heuristic estimates how close a state is to being plaintext.
-/// A lower value indicates a more promising state. This implementation uses:
-/// 1. Decoder popularity (lower heuristic for more popular decoders)
-/// 2. Adaptive depth penalty (higher heuristic for deeper paths, with increasing penalty as depth grows)
-/// 3. String quality component (higher heuristic for lower quality strings)
-/// 4. Uncommon sequence penalty (higher heuristic for uncommon decoder sequences)
-///
-/// # Parameters
-///
-/// * `text` - The text to analyze
-/// * `path` - The path of decoders used to reach the current state
-/// * `next_decoder` - The next decoder to be applied (if any)
-///
-/// # Returns
-/// A float value representing the heuristic cost (lower is better)
+/// Whether every character of `text` fits the alphabet of a common binary-to-text encoding.
+/// Needs at least 8 characters; short words fit the Base64 alphabet trivially.
+pub fn looks_like_known_encoding(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.chars().count() < 8 {
+        return false;
+    }
+    let alphabets: [&dyn Fn(char) -> bool; 7] = [
+        // Base64, standard and URL-safe
+        &|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '-' | '_' | '='),
+        // Base32
+        &|c| c.is_ascii_uppercase() || matches!(c, '2'..='7' | '='),
+        // Hex
+        &|c| c.is_ascii_hexdigit() || c.is_whitespace() || matches!(c, ':' | '-'),
+        // Binary
+        &|c| matches!(c, '0' | '1') || c.is_whitespace(),
+        // Morse
+        &|c| matches!(c, '.' | '-' | '/' | '·' | '−') || c.is_whitespace(),
+        // a1z26 and other numeric encodings
+        &|c| c.is_ascii_digit() || c.is_whitespace() || matches!(c, '-' | ',' | '.'),
+        // Braille
+        &|c| ('\u{2800}'..='\u{28FF}').contains(&c) || c.is_whitespace(),
+    ];
+    alphabets
+        .iter()
+        .any(|alphabet| trimmed.chars().all(alphabet))
+}
+
+/// g increment for an edge produced by `decoder`. Unpopular decoders, decoders that have not
+/// produced useful output this run, and decoders that return many candidates (Caesar 25,
+/// railfence 72) all cost more; the `ln(n)` term is what keeps one railfence expansion from
+/// flooding the frontier.
+pub fn edge_cost(decoder: &(dyn Crack + Sync), num_candidates: usize) -> f32 {
+    let popularity = decoder.get_popularity().clamp(0.0, 1.0);
+    let success_rate = get_decoder_success_rate(decoder.get_name());
+    1.0 + (1.0 - popularity) * 0.5
+        + (1.0 - success_rate) * 0.25
+        + (num_candidates.max(1) as f32).ln() * 0.5
+}
+
+/// h: estimated distance from `text` to plaintext. Text inside a known encoding alphabet is
+/// assumed one step away; anything else, at least two. Adds penalties for poor string
+/// quality, depth, and an uncommon decoder pairing. `path` includes `next_decoder`.
 pub fn generate_heuristic(
     text: &str,
     path: &[CrackResult],
-    next_decoder: &Option<Box<dyn Crack + Sync>>,
+    next_decoder: Option<&(dyn Crack + Sync)>,
 ) -> f32 {
     let mut base_score = 0.0;
 
-    // 1. Popularity component - directly use (1.0 - popularity)
-    if let Some(decoder) = next_decoder {
-        // Use the decoder's popularity via the get_popularity method (higher popularity = lower score)
-        base_score += 1.0 - decoder.get_popularity();
-        // Favor decoders that have produced successful outputs in this run.
-        base_score += (1.0 - get_decoder_success_rate(decoder.get_name())) * 0.25;
-    } else {
-        // If next decoder is None, add a moderate penalty
-        base_score += 0.5;
+    if !looks_like_known_encoding(text) {
+        base_score += 1.0;
     }
 
-    // 2. Depth penalty - exponential growth but not too aggressive
-    // Use an adaptive coefficient that increases as the path gets deeper
-    // This makes the algorithm more aggressive in pruning deep paths as the search progresses
-    let depth_coefficient = 0.05 * (1.0 + (path.len() as f32 / 20.0));
-    base_score += (depth_coefficient * path.len() as f32).powi(2);
-
-    // 3. String quality component - penalize low quality strings
-    // Lower quality = higher penalty
     let quality = calculate_string_quality(text);
     base_score += (1.0 - quality) * 0.5;
 
-    // 4. Penalty for uncommon pairings
+    let depth_coefficient = 0.05 * (1.0 + (path.len() as f32 / 20.0));
+    base_score += (depth_coefficient * path.len() as f32).powi(2);
+
     if path.len() > 1 {
-        if let Some(previous_decoder) = path.last() {
-            if let Some(next_decoder) = next_decoder {
-                if !is_common_sequence(previous_decoder.decoder, next_decoder.get_name()) {
-                    base_score += 0.25;
-                }
+        if let Some(next_decoder) = next_decoder {
+            let previous_decoder = &path[path.len() - 2];
+            if !is_common_sequence(previous_decoder.decoder, next_decoder.get_name()) {
+                base_score += 0.25;
             }
         }
     }
@@ -213,7 +248,11 @@ pub fn generate_heuristic(
 /// A string is considered undecodeble if:
 /// - It has 2 or fewer characters
 /// - It has more than 30% non-printable characters
-/// - Its overall quality score is below 0.2
+///
+/// Length is not held against it. This used to also require a
+/// [`calculate_string_quality`] of 0.2, which past the two checks above only fails for
+/// text of 821 to 5,000 characters (the length score drops below 0.2 at 821 characters,
+/// and text over 5,000 gets 0.3), so a correct answer that long was always rejected.
 ///
 /// ## Rationale
 ///
@@ -221,7 +260,6 @@ pub fn generate_heuristic(
 /// 2. LemmeKnow and other pattern matchers perform poorly on very short strings
 /// 3. Most encoding schemes produce output of at least 3 characters
 /// 4. Strings with high percentages of non-printable characters are unlikely to be valid encodings
-/// 5. Very low quality strings waste computational resources and rarely yield useful results
 ///
 /// Filtering out these strings early saves computational resources and
 /// prevents the search from exploring unproductive paths.
@@ -234,12 +272,6 @@ pub fn check_if_string_cant_be_decoded(text: &str) -> bool {
     // Check for strings with high non-printable character ratio
     let non_printable_ratio = calculate_non_printable_ratio(text);
     if non_printable_ratio > 0.3 {
-        return true;
-    }
-
-    // Check for overall string quality
-    let quality = calculate_string_quality(text);
-    if quality < 0.2 {
         return true;
     }
 
@@ -257,9 +289,9 @@ mod tests {
         let crack_result = CrackResult::new(&Decoder::default(), "test".to_string());
 
         // Test with different path lengths
-        let depth_0 = generate_heuristic("test", &[], &None);
-        let depth_5 = generate_heuristic("test", &vec![crack_result.clone(); 5], &None);
-        let depth_10 = generate_heuristic("test", &vec![crack_result.clone(); 10], &None);
+        let depth_0 = generate_heuristic("test", &[], None);
+        let depth_5 = generate_heuristic("test", &vec![crack_result.clone(); 5], None);
+        let depth_10 = generate_heuristic("test", &vec![crack_result.clone(); 10], None);
 
         // Verify that deeper paths have higher scores
         assert!(depth_0 < depth_5);
@@ -309,6 +341,20 @@ mod tests {
         let all_invisible = "\u{0}\u{0}\u{0}\u{0}\u{0}";
         let all_invisible_quality = calculate_string_quality(all_invisible);
         assert_eq!(all_invisible_quality, 0.0);
+    }
+
+    #[test]
+    fn long_text_can_be_a_result() {
+        // The quality check used to reject every text of 821 to 5,000 characters
+        let sentence = "The quick brown fox jumps over the lazy dog. ";
+        for repeats in [17, 19, 25, 60, 110, 120] {
+            let text = sentence.repeat(repeats);
+            assert!(
+                !check_if_string_cant_be_decoded(&text),
+                "{} chars",
+                text.len()
+            );
+        }
     }
 
     #[test]

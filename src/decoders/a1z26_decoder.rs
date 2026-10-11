@@ -6,7 +6,18 @@ use super::interface::Crack;
 use super::interface::Decoder;
 
 use log::{debug, info, trace};
+use once_cell::sync::Lazy;
 use regex::Regex;
+
+/// Input has at least one digit.
+static RE_HAS_A_DIGIT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[0-9]").expect("Regex should be valid"));
+/// Input is only digits and delimiters.
+static RE_ALL_VALID_CHARS: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\A([0-9,;:\-\s])*\z").expect("Regex should be valid"));
+/// Delimiters between the numbers.
+static RE_DELIMITERS: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[,;:\-\s]+").expect("Regex should be valid"));
 
 /// A1Z26 Decoder
 pub struct A1Z26Decoder;
@@ -18,13 +29,13 @@ impl Crack for Decoder<A1Z26Decoder> {
             description: "A1Z26 is an encoding that maps each letter to its numeric position in the alphabet. This encoding cannot represent spaces or punctuation.",
             link: "https://dadstuffsite.com/a1z26-cipher-what-it-is-and-how-to-teach-your-kids/",
             tags: vec!["A1Z26", "substitution", "decoder"],
-            popularity: 0.5,
+            popularity: 0.6,
             phantom: std::marker::PhantomData,
         }
     }
 
     /// Decode using the A1Z26 encoding
-    /// It returns an Option<string> if it was successful
+    /// It returns an `Option<String>` if it was successful
     /// Else the Option returns nothing and the error is logged in Trace
     ///
     /// A1Z26 is an encoding that maps each letter to its numeric position in the alphabet. This
@@ -79,6 +90,10 @@ impl Crack for Decoder<A1Z26Decoder> {
     fn get_name(&self) -> &str {
         self.name
     }
+    /// Gets the popularity for the current decoder
+    fn get_popularity(&self) -> f32 {
+        self.popularity
+    }
 
     /// Gets the description for the current decoder
     fn get_description(&self) -> &str {
@@ -92,21 +107,18 @@ impl Crack for Decoder<A1Z26Decoder> {
 }
 
 /// This function does the actual decoding
-/// It returns an Option<string> if it was successful
+/// It returns an `Option<String>` if it was successful
 /// Else the Option returns nothing and the error is logged in Trace
 fn decode_a1z26(ctext: &str) -> Option<String> {
-    let re_has_a_digit = Regex::new(r"[0-9]").expect("Regex should be valid");
-    if !re_has_a_digit.is_match(ctext) {
+    if !RE_HAS_A_DIGIT.is_match(ctext) {
         return None;
     }
 
-    let re_all_valid_chars = Regex::new(r"\A([0-9,;:\-\s])*\z").expect("Regex should be valid");
-    if !re_all_valid_chars.is_match(ctext) {
+    if !RE_ALL_VALID_CHARS.is_match(ctext) {
         return None;
     }
 
-    let re_delimiters = Regex::new(r"[,;:\-\s]+").expect("Regex should be valid");
-    let letters: Option<Vec<char>> = re_delimiters
+    let letters: Option<Vec<char>> = RE_DELIMITERS
         .split(ctext)
         .filter(|x| !x.is_empty())
         .map(decode_one_char_a1z26)
